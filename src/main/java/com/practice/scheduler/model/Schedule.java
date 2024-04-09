@@ -35,7 +35,7 @@ public class Schedule {
     private String jobId;
     @Column
     private String cron;
-    @Column
+    @Column(columnDefinition = "TEXT")
     private String paramString;
     @Column
     private String dupYn;

@@ -6,9 +6,8 @@ import com.practice.scheduler.model.Schedule;
 import com.practice.scheduler.service.SchedulerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.quartz.Scheduler;
 import org.quartz.SchedulerException;
-import org.quartz.SchedulerFactory;
-import org.quartz.impl.StdSchedulerFactory;
 import org.springframework.hateoas.server.mvc.WebMvcLinkBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -27,7 +26,7 @@ public class SchedulerController {
 
     private final SchedulerService schedulerService;
     private final JobRegistry jobRegistry;
-    SchedulerFactory sf = new StdSchedulerFactory();
+    private final Scheduler scheduler;
 
     /** todo
      *   cron 생성 api (초 분 시 일 월 년) (반복, 1회)
@@ -38,37 +37,22 @@ public class SchedulerController {
      * 스케줄러 실행
      * @return
      */
-    @GetMapping(value = "/run")
+    @GetMapping(value = "/init")
     public ResponseEntity<?> runScheduler() throws SchedulerException {
-        if(!sf.getScheduler().isStarted()) {
-            schedulerService.run();
-            return ResponseEntity.ok().body(true);
-        } else return ResponseEntity.noContent().build();
+        schedulerService.addAllSchedule();
+        return ResponseEntity.noContent().build();
     }
 
     /**
-     * 스케줄러 종료
-     * @param wait 실행중인 job 대기 후 종료 여부
+     * 전체 스케줄 reload (실행중인 job 대기 후 reload)
      * @return
      * @throws SchedulerException
      */
-    @GetMapping(value = "/shutdown")
-    public ResponseEntity<?> shutdownScheduler(@RequestParam boolean wait) throws SchedulerException {
-        if(!sf.getScheduler().isShutdown()) {
-            schedulerService.shutdown(wait);
-            return ResponseEntity.ok().body(true);
-        } else return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * 스케줄러 재시작 (실행중인 job 대기 후 재시작)
-     * @return
-     * @throws SchedulerException
-     */
-    @GetMapping(value = "/rerun")
+    @GetMapping(value = "/reload")
     public ResponseEntity<?> startScheduler() throws SchedulerException {
-        schedulerService.shutdown(true);
-        schedulerService.run();
+        if(schedulerService.clearAllSchedule()){
+            schedulerService.addAllSchedule();
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -78,7 +62,7 @@ public class SchedulerController {
      * @throws SchedulerException
      */
     @GetMapping(value = "/schedule")
-    public ResponseEntity<List<Schedule>> selectAllSchedule() throws SchedulerException {
+    public ResponseEntity<List<Schedule>> selectAllSchedule() {
         return ResponseEntity.ok().body(schedulerService.selectAllSchedule());
     }
 
@@ -101,7 +85,7 @@ public class SchedulerController {
     public ResponseEntity<Schedule> createSchedule(@RequestBody RequestDto dto) throws SchedulerException{
         Schedule result = schedulerService.createSchedule(dto);
         // 스케줄러가 실행중이면 신규 등록 job 을 바로 스케줄러에 등록함
-        if(sf.getScheduler().isStarted()){
+        if(scheduler.isStarted()){
             schedulerService.addSchedule(result);
         }
         WebMvcLinkBuilder self = linkTo(methodOn(SchedulerController.class).selectSchedule(result.getId()));

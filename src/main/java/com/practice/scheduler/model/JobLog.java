@@ -4,9 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
@@ -16,7 +13,6 @@ import java.time.LocalDateTime;
 @Entity
 @NoArgsConstructor
 @AllArgsConstructor
-@EntityListeners(AuditingEntityListener.class)
 public class JobLog {
 
     @Id
@@ -28,20 +24,24 @@ public class JobLog {
     @Column
     private String jobId;
     @Column
+    private String executeId;
+    @Column
     private String parameter;
     @Column
     private String status;
-
+    @Column
+    private Long runtime;
+    @Column(columnDefinition = "TEXT")
+    private String resultSummary;
+    @Column
+    private String cause;
+    @Column(columnDefinition = "TEXT")
+    private String causeDetail;
+    @Column
+    private String serverHost;
+    @Column
     private LocalDateTime executeDateTime;
-
+    @Column
     private LocalDateTime endDateTime;
 
-
-
-
-
-    @CreatedDate
-    private LocalDateTime createdDate;
-    @LastModifiedDate
-    private LocalDateTime updateDate;
 }

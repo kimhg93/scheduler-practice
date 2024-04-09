@@ -2,7 +2,6 @@ package com.practice.scheduler.service;
 
 import com.practice.scheduler.exception.ScheduleException;
 import com.practice.scheduler.job.api.APICallbackRegistry;
-import com.practice.scheduler.job.api.APIJob;
 import com.practice.scheduler.job.common.JobRegistry;
 import com.practice.scheduler.model.RequestDto;
 import com.practice.scheduler.model.Schedule;
@@ -10,7 +9,7 @@ import com.practice.scheduler.repository.SchedulerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.quartz.*;
-import org.quartz.impl.StdSchedulerFactory;
+import org.quartz.impl.matchers.GroupMatcher;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.http.HttpStatus;
@@ -29,7 +28,7 @@ import static org.quartz.TriggerBuilder.newTrigger;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class SchedulerService implements ApplicationListener<ApplicationReadyEvent> {
+public class SchedulerService {
 
     // 추후 CommonJob에서 사용될 공통 로직 구현
     // 스케줄 정보 DB 조회, 로그 DB 적재, 결과 DB 적재 등
@@ -37,31 +36,17 @@ public class SchedulerService implements ApplicationListener<ApplicationReadyEve
     private final JobRegistry jobRegistry;
     private final SchedulerRepository schedulerRepository;
     private final APICallbackRegistry apiCallbackRegistry;
+    private final Scheduler scheduler;
 
-    SchedulerFactory sf = new StdSchedulerFactory();
+    private final String DEFAULT_GROUP = "default-group";
 
-    @Override
-    public void onApplicationEvent(ApplicationReadyEvent event) {
-        //run();
-    }
-
-    /**
-     * 스케줄러에 job을 등록하고 스케줄러를 실행
-     */
-    public void run() {
-        try {
-            addAllSchedule();
-            startScheduler();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
 
     /**
      * job과 스케줄 정보를 조회하여 스케줄러에 등록한다.
      * @throws SchedulerException
      */
     public void addAllSchedule() throws SchedulerException {
+        scheduler.clear();
         for(Schedule vo : selectAllSchedule()){
             addSchedule(vo);
         }
@@ -77,13 +62,13 @@ public class SchedulerService implements ApplicationListener<ApplicationReadyEve
         if(vo.getApiYn().equalsIgnoreCase("Y")){
             jobDataMap.put("apiCallbackRegistry", apiCallbackRegistry);
             job = newJob(jobs.get("APIJob").getClass())
-                    .withIdentity(vo.getJobId(), "group1")
+                    .withIdentity(vo.getJobId(), DEFAULT_GROUP)
                     .usingJobData(jobDataMap)
                     .build();
         } else {
             jobDataMap.put("param", vo.getParameter());
             job = newJob(jobs.get(vo.getClassNm()).getClass())
-                    .withIdentity(vo.getJobId(), "group1")
+                    .withIdentity(vo.getJobId(), DEFAULT_GROUP)
                     .usingJobData(jobDataMap)
                     .build();
         }
@@ -92,11 +77,10 @@ public class SchedulerService implements ApplicationListener<ApplicationReadyEve
     }
 
     public void addSchedule(Schedule vo) throws SchedulerException {
-        Scheduler scheduler = sf.getScheduler();
         JobDetail job = initJob(vo);
 
         CronTrigger trigger = newTrigger()
-                .withIdentity(vo.getJobId(), "group1")
+                .withIdentity(vo.getJobId(), DEFAULT_GROUP)
                 .withSchedule(CronScheduleBuilder.cronSchedule(vo.getCron()))
                 .build();
 
@@ -104,47 +88,59 @@ public class SchedulerService implements ApplicationListener<ApplicationReadyEve
     }
 
     public void updateSchedule(Schedule vo) throws SchedulerException {
-        Scheduler scheduler = sf.getScheduler();
-
-        TriggerKey triggerKey = new TriggerKey(vo.getJobId(), "group1");
+        TriggerKey triggerKey = new TriggerKey(vo.getJobId(), DEFAULT_GROUP);
         CronTrigger trigger = newTrigger()
-                .withIdentity(vo.getJobId(), "group1")
+                .withIdentity(vo.getJobId(), DEFAULT_GROUP)
                 .withSchedule(CronScheduleBuilder.cronSchedule(vo.getCron()))
                 .build();
 
         scheduler.rescheduleJob(triggerKey, trigger);
     }
 
-    /**
-     * 스케줄러를 실행한다.
-     * @throws SchedulerException
-     */
-    public void startScheduler() throws SchedulerException {
-        log.info("------- Initializing ----------------------");
-        Scheduler scheduler = sf.getScheduler();
-        log.info("------- Initialization Complete -----------");
-
-        log.info("------- Scheduling Job  -------------------");
-        scheduler.start();
-        log.info("------- Started Scheduler -----------------");
+    public boolean waitRunningJob() throws SchedulerException {
+        while (true) {
+            List<JobExecutionContext> executingJobs = scheduler.getCurrentlyExecutingJobs();
+            if (executingJobs.isEmpty()) {
+                return true;
+            } else {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new SchedulerException();
+                }
+            }
+        }
     }
 
-    /**
-     * 스케줄러를 종료 한다.
-     * scheduler.shutdown(args) args 가 true 일 경우 실행중인 작업 대기 후 종료 false 일 경우 바로 종료
-     * @throws SchedulerException
-     */
-    public boolean shutdown(boolean waitForJobsToComplete) throws SchedulerException {
-        Scheduler scheduler = sf.getScheduler();
+    public boolean clearAllSchedule() throws SchedulerException {
+        while(true){
+            for (JobKey jobKey : scheduler.getJobKeys(GroupMatcher.jobGroupEquals(DEFAULT_GROUP))) {
+                List<JobExecutionContext> executingJobs = scheduler.getCurrentlyExecutingJobs();
+                boolean isExecuting = false;
 
-        log.info("------- Shutting Down ---------------------");
-        scheduler.shutdown(waitForJobsToComplete);
-        log.info("------- Shutdown Complete -----------------");
+                for (JobExecutionContext executingJob : executingJobs) {
+                    if (executingJob.getJobDetail().getKey().equals(jobKey)) {
+                        isExecuting = true;
+                        break;
+                    }
+                }
+                if (!isExecuting) {
+                    scheduler.deleteJob(jobKey);
+                    log.info("Deleted job: {}", jobKey);
+                }
+            }
 
-        while(!scheduler.isShutdown()){
+            if(scheduler.getJobKeys(GroupMatcher.jobGroupEquals(DEFAULT_GROUP)).isEmpty()){
+                return true;
+            } else {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e){
+                    e.printStackTrace();
+                }
+            }
         }
-
-        return scheduler.isShutdown();
     }
 
 
@@ -154,8 +150,6 @@ public class SchedulerService implements ApplicationListener<ApplicationReadyEve
      * @throws SchedulerException
      */
     public List<Map<String, Object>> getRunningJobs() throws SchedulerException {
-        Scheduler scheduler = sf.getScheduler();
-
         List<Map<String, Object>> list = new ArrayList<>();
 
         List<JobExecutionContext> currentlyExecutingJobs = scheduler.getCurrentlyExecutingJobs();
@@ -231,7 +225,7 @@ public class SchedulerService implements ApplicationListener<ApplicationReadyEve
                 .withSchedule(simpleSchedule().withMisfireHandlingInstructionFireNow())
                 .build();
 
-        sf.getScheduler().scheduleJob(jobDetail, trigger);
+        scheduler.scheduleJob(jobDetail, trigger);
     }
 
 }

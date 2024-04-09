@@ -3,6 +3,7 @@ package com.practice.scheduler.job.api;
 import com.practice.scheduler.job.common.CommonJob;
 import com.practice.scheduler.model.Schedule;
 import org.quartz.JobExecutionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -12,14 +13,14 @@ import java.util.Map;
  * REST API 호출은 해당 Job을 공통적으로 사용하며 APICallbackHandler 를 상속하여 각 요청별 콜백과 에러처리만 구현
  */
 @Component
+
 public class APIJob extends CommonJob {
+
+    @Autowired
+    private APICallbackRegistry registry;
 
     @Override
     public void doExecute(JobExecutionContext context) {
-        APICallbackRegistry registry = (APICallbackRegistry) context.getJobDetail()
-                .getJobDataMap()
-                .get("apiCallbackRegistry");
-
         Schedule schedule = (Schedule) context.getJobDetail()
                 .getJobDataMap()
                 .get("schedule");

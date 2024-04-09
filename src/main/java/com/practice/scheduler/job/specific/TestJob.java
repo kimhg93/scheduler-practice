@@ -3,6 +3,7 @@ package com.practice.scheduler.job.specific;
 import com.practice.scheduler.job.common.CommonJob;
 import lombok.extern.slf4j.Slf4j;
 import org.quartz.JobExecutionContext;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.util.Date;
